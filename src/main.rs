@@ -105,8 +105,9 @@ impl Game {
         format!("{word} {suffix}")
     }
 
-    fn correctly_guessed(&self, guess: &char) -> bool {
-        self.secret_word.contains(*guess) && !self.correct_guess.contains(guess)
+    fn correct_guess(&self, guess: &char) -> bool {
+        self.secret_word.contains(*guess) 
+            // && !self.correct_guess.contains(guess)
     }
 
     // clone() + insert() is standard Rust. The collections used in this game are tiny-
@@ -123,16 +124,22 @@ impl Game {
         
         // eliminated player's guesses doesn't affect game
         if player_state.is_eliminated() {
-            println!("you've been eliminated");   // TODO
+            println!("you've been eliminated");
             Game {
                 secret_word: self.secret_word.clone(),
                 correct_guess: self.correct_guess.clone(),
                 players: self.players.clone(),
                 winner: self.winner,
             }
-        } else {
-            // player is in the game
-            if self.correctly_guessed(guess) {
+        } else if self.correct_guess.contains(guess) || player_state.wrong_guess.contains(guess) {
+            println!("already guessed {guess}, try a different letter");
+            Game {
+                secret_word: self.secret_word.clone(),
+                correct_guess: self.correct_guess.clone(),
+                players: self.players.clone(),
+                winner: self.winner.clone(),
+            }
+        } else if self.correct_guess(guess) {
                 let mut new_correct = self.correct_guess.clone();
                 new_correct.insert(*guess);
                 
@@ -154,25 +161,23 @@ impl Game {
                         winner: self.winner,
                     }
                 }
-            } else {
-                // player incorrectly guessed
-                let mut new_wrong = player_state.wrong_guess.clone();
-                new_wrong.insert(*guess);
-                
-                let mut new_map = self.players.clone();
-                new_map.insert(*player_id, PlayerState { wrong_guess: new_wrong });
+        } else {
+            // player incorrectly guessed
+            let mut new_wrong = player_state.wrong_guess.clone();
+            new_wrong.insert(*guess);
+            
+            let mut new_map = self.players.clone();
+            new_map.insert(*player_id, PlayerState { wrong_guess: new_wrong });
 
-                Game {
-                    secret_word: self.secret_word.clone(),
-                    correct_guess: self.correct_guess.clone(),
-                    players: new_map,
-                    winner: self.winner,
-                }
+            Game {
+                secret_word: self.secret_word.clone(),
+                correct_guess: self.correct_guess.clone(),
+                players: new_map,
+                winner: self.winner,
             }
         }
     }
 }
-
 
 //
 // Parsing and Validation 
@@ -351,17 +356,12 @@ mod tests {
 
     #[test]
     fn correctly_guessed_char_in_word_not_yet_guessed() {
-        assert!(make_game("apple", &[], &[]).correctly_guessed(&'a'));
-    }
-
-    #[test]
-    fn correctly_guessed_char_already_in_correct_set() {
-        assert!(!make_game("apple", &['a'], &[]).correctly_guessed(&'a'));
+        assert!(make_game("apple", &[], &[]).correct_guess(&'a'));
     }
 
     #[test]
     fn correctly_guessed_char_not_in_word() {
-        assert!(!make_game("apple", &[], &[]).correctly_guessed(&'z'));
+        assert!(!make_game("apple", &[], &[]).correct_guess(&'z'));
     }
 
     // ── play — single player ──────────────────────────────────────────────────
