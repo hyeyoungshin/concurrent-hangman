@@ -6,6 +6,7 @@ pub use std::collections::{HashMap, HashSet};
 pub type PlayerId = u32;
 pub type WrongGuess = HashSet<char>;
 
+#[derive(Clone)]
 pub struct Game {
     secret_word: String,
     correct_guess: HashSet<char>, // Set of chars correctly guessed so far
@@ -19,7 +20,7 @@ pub struct PlayerState {
 }
 
 impl PlayerState {
-    fn is_eliminated(&self) -> bool {
+    pub fn is_eliminated(&self) -> bool {
         self.wrong_guess.len() as u32 >= MAX_WRONG_GUESSES
     }
 }
@@ -100,7 +101,7 @@ impl Game {
     }
 
     // Prints the message that should be shown to a specific player
-    pub fn state_view (&self, player_id: &u32) -> String {
+    pub fn state_view(&self, player_id: &u32) -> String {
         // _ a _ _ _ a _   wrong guesses: 3/6   guessed: a, e, t
         let word = self.word_view();
         let player_state = self.get_player_state(player_id);
@@ -196,7 +197,7 @@ impl Game {
 // Adding `: Sized` supertrait means "any type implementing this trait must also be Sized
 // ---its size known at compile time"
 // which allows use of Self in return/value position freely throughout the trait
-trait ValidInput: Sized {
+pub trait ValidInput: Sized {
     fn parse_and_validate(input: &String, max: u32) -> Result<Self, String>;
 }
 
