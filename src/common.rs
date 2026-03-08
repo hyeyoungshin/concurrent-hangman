@@ -66,6 +66,18 @@ impl Game {
         }
     }
 
+    pub fn register_player(&self, player_id: &PlayerId) -> Self {
+        let mut new_map = self.players.clone();
+        new_map.entry(*player_id).or_insert(PlayerState { wrong_guess: HashSet::new() });
+
+        Game {
+            secret_word: self.secret_word.clone(),
+            correct_guess: self.correct_guess.clone(),
+            players: new_map,
+            winner: self.winner,
+        }
+    }
+
     // when there is a winner
     // or all the players have been eliminated
     pub fn game_over(&self) -> bool {
@@ -76,6 +88,10 @@ impl Game {
     }
 
     // Getters for external callers
+    pub fn get_secret_word(&self) -> String {
+        self.secret_word.clone()
+    }
+
     pub fn get_winner(&self) -> Option<PlayerId> {
         self.winner
     }
@@ -111,7 +127,7 @@ impl Game {
             let wrong_guesses = player_state.wrong_guess.clone();
 
             if player_state.is_eliminated() {
-              format!("  wrong guesses: {}/6, guessed: {:?}, game over", num_wrong_guesses, wrong_guesses)
+              format!("  wrong guesses: {}/6, guessed: {:?}, you've been eliminated", num_wrong_guesses, wrong_guesses,)
             } else {
               format!("  wrong guesses: {}/6, guessed: {:?}", num_wrong_guesses, wrong_guesses)
             }
@@ -135,7 +151,6 @@ impl Game {
         
         // eliminated player's guesses doesn't affect game
         if player_state.is_eliminated() {
-            println!("you've been eliminated");
             Game {
                 secret_word: self.secret_word.clone(),
                 correct_guess: self.correct_guess.clone(),
@@ -143,7 +158,6 @@ impl Game {
                 winner: self.winner,
             }
         } else if self.correct_guess.contains(guess) || player_state.wrong_guess.contains(guess) {
-            println!("already guessed {guess}, try a different letter");
             Game {
                 secret_word: self.secret_word.clone(),
                 correct_guess: self.correct_guess.clone(),
