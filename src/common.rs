@@ -66,6 +66,7 @@ impl Game {
         }
     }
 
+    // All connected players need to be in the players map from the start for game over conditions
     pub fn register_player(&self, player_id: &PlayerId) -> Self {
         let mut new_map = self.players.clone();
         new_map.entry(*player_id).or_insert(PlayerState { wrong_guess: HashSet::new() });
@@ -78,8 +79,9 @@ impl Game {
         }
     }
 
-    // when there is a winner
-    // or all the players have been eliminated
+    // Game over logic
+    // 1. if Game has a winner
+    // 2. Or all players in the game are eliminated
     pub fn game_over(&self) -> bool {
         self.winner.is_some() || 
             // add guard: there is at least one player 
@@ -138,31 +140,26 @@ impl Game {
 
     pub fn is_correct_guess(&self, guess: &char) -> bool {
         self.secret_word.contains(*guess) 
-            // && !self.correct_guess.contains(guess)
     }
 
-    // clone() + insert() is standard Rust. The collections used in this game are tiny-
-    // correct guesses are at most 9 chars and wrong guesses at most 6 per player (MAX_WRONG_GUESSES)
-    // cloning a 6-element HashSet is negligible
-    // im's Arc reference counting actually adds overhead at this scale
+    // Main game logic
+    // Updates Game state
+    // 1. if player has already been eliminated or player guesses previously gussed character, Game doesn't update 
+    // 2. if player guessed one of the characters in the secret word, 
+    //   - game is over, Game's correct_guess and winner get updated
+    //   - game isn't over, Game's correct_guess gets updatd
+    // 3. if player guessed a wrong character, Game's player map gets updated with the new wrong guess
     pub fn play(&self, player_id: &PlayerId, guess: &char) -> Self {
         // todo!()
         let player_state = self.get_player_state(player_id);
         
         // eliminated player's guesses doesn't affect game
-        if player_state.is_eliminated() {
+        if player_state.is_eliminated() || self.correct_guess.contains(guess) || player_state.wrong_guess.contains(guess) {
             Game {
                 secret_word: self.secret_word.clone(),
                 correct_guess: self.correct_guess.clone(),
                 players: self.players.clone(),
                 winner: self.winner,
-            }
-        } else if self.correct_guess.contains(guess) || player_state.wrong_guess.contains(guess) {
-            Game {
-                secret_word: self.secret_word.clone(),
-                correct_guess: self.correct_guess.clone(),
-                players: self.players.clone(),
-                winner: self.winner
             }
         } else if self.is_correct_guess(guess) {
                 let mut new_correct = self.correct_guess.clone();
