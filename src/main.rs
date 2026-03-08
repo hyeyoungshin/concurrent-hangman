@@ -1,8 +1,7 @@
 mod common; // compiler looks for src/common.rs
+mod shared_state;
 
 use crate::common::*;
-
-
 
 fn game_loop() {
     let mut game = Game::start_test_game("hello".to_string());
@@ -12,11 +11,18 @@ fn game_loop() {
         let player_id: PlayerId = get_valid_input(MAX_NUM_PLAYERS);
         
         println!("{}", game.state_view(&player_id));
+        
+        println!("Guess a letter.");
         let player_guess: char = get_valid_input(0);
+        
         game = game.play(&player_id, &player_guess)
     }
 
-    println!("winner is player {}", game.get_winner().unwrap());
+    match game.get_winner() {
+        Some(winner) => { println!("winner is player {winner}"); }
+        None => { println!("game over, secret word is {}", game.get_secret_word()); }
+    }
+    
 }
 
 fn main() {
