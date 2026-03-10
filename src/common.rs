@@ -127,7 +127,7 @@ impl Game {
             let wrong_guesses = player_state.wrong_guess.clone();
 
             if player_state.is_eliminated() {
-              format!("  wrong guesses: {}/6, guessed: {:?}, you've been eliminated\n", num_wrong_guesses, wrong_guesses,)
+              format!("  wrong guesses: {}/6, guessed: {:?}\nyou've been eliminated\n", num_wrong_guesses, wrong_guesses,)
             } else {
               format!("  wrong guesses: {}/6, guessed: {:?}\n", num_wrong_guesses, wrong_guesses)
             }
@@ -142,7 +142,7 @@ impl Game {
 
         }
 
-        format!("{word} {suffix} {other_players_state}")
+        format!("{word} {suffix}{other_players_state}")
     }
 
     pub fn is_correct_guess(&self, guess: &char) -> bool {
