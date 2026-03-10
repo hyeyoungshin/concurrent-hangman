@@ -6,10 +6,10 @@ use std::io::{BufReader, LineWriter, Write, BufRead};
 
 use crate::common::*;
 
-pub fn server() {
-    let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
+pub fn server(addr: &str, initial_state: Game) {
+    let listener = TcpListener::bind(addr).unwrap();
 
-    let shared_game = Arc::new(Mutex::new(Game::start_game()));
+    let shared_game = Arc::new(Mutex::new(initial_state));
 
     for player_id in 0..MAX_NUM_PLAYERS {
         let(stream, _addr) = listener.accept().unwrap();
@@ -50,7 +50,11 @@ pub fn handle_client(mut reader: BufReader<TcpStream>, mut writer: LineWriter<Tc
         }
 
         if current_game.game_over() {
-            writeln!(writer, "Secret word is {}", current_game.get_secret_word()).unwrap();
+            match current_game.get_winner() {
+                Some(winner) if winner == *player_id => { writeln!(writer, "Congratulation, you won!").unwrap(); },
+                Some(winner) => { writeln!(writer, "Player {} won.", winner).unwrap(); }
+                None => { writeln!(writer, "Nobody won... secret word is {}", current_game.get_secret_word()).unwrap(); }
+            }
             break;
         } else if  current_game.get_player_state(&player_id).is_eliminated() {
             std::thread::sleep(std::time::Duration::from_secs(1));
