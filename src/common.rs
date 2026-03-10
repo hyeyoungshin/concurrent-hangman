@@ -43,11 +43,9 @@ impl Game {
 
     }
 
-    pub fn start_game() -> Self {
+    pub fn start_game(word_len: u32) -> Self {
         use random_word::Lang;
         println!("Enter the length of the word.");
-
-        let word_len: u32 = get_valid_input(WORD_MAX_LEN);
 
         Game {
             secret_word: random_word::get_len(word_len as usize, Lang::En).unwrap().to_string(),
@@ -57,9 +55,9 @@ impl Game {
         }
     }
 
-    pub fn start_test_game(secret_word: String) -> Self {
+    pub fn start_test_game(secret_word: &str) -> Self {
         Game {
-            secret_word,
+            secret_word: secret_word.to_string(),
             correct_guess: HashSet::new(),
             players: HashMap::new(),
             winner: None,
@@ -129,13 +127,22 @@ impl Game {
             let wrong_guesses = player_state.wrong_guess.clone();
 
             if player_state.is_eliminated() {
-              format!("  wrong guesses: {}/6, guessed: {:?}, you've been eliminated", num_wrong_guesses, wrong_guesses,)
+              format!("  wrong guesses: {}/6, guessed: {:?}, you've been eliminated\n", num_wrong_guesses, wrong_guesses,)
             } else {
-              format!("  wrong guesses: {}/6, guessed: {:?}", num_wrong_guesses, wrong_guesses)
+              format!("  wrong guesses: {}/6, guessed: {:?}\n", num_wrong_guesses, wrong_guesses)
             }
         };
 
-        format!("{word} {suffix}")
+        let mut other_players_state = String::new();
+
+        for (player, state) in self.get_players() {
+            if player != *player_id {
+                other_players_state = other_players_state + format!("player {player}'s wrong guesses: {}/6\n", state.wrong_guess.len()).as_str()
+            }
+
+        }
+
+        format!("{word} {suffix} {other_players_state}")
     }
 
     pub fn is_correct_guess(&self, guess: &char) -> bool {
