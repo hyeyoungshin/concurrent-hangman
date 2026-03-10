@@ -86,26 +86,24 @@ pub fn handle_client(mut reader: BufReader<TcpStream>, mut writer: LineWriter<Tc
         // Session starts after the first game is over
         writeln!(writer, "play again? (y/n)").unwrap();
         
-        // TODO: implement better validation for this question
-        let player_vote: bool = 'y' == get_valid_input(0, &mut reader, &mut writer);
-            
+        let player_vote: bool = get_valid_input(0, &mut reader, &mut writer);
+
         {
             let mut shared_vote = shared_vote.lock().unwrap();
             shared_vote.insert(*player_id, Some(player_vote));
 
         }
 
-        // guarantees all votes are in before counting in line 91
+        // 1st Barrier Wait:
+        // Guarantees all votes are in before counting in line 102
         let barrier_result = barrier.wait();
 
         // Watch out for empty map vacuously satisfying .all condition!
         let all_voted_yes = shared_vote.lock().unwrap().values().all(|v| *v == Some(true));
 
         if barrier_result.is_leader() {
-            // clear votes
-            // Setting all values to None preserves the keys (players) and makes the unvoted state explicit
-            // It's unnecessary to distinguish "player exists but hasn't voted yet" from "player doesn't exist" 
-            shared_vote.lock().unwrap().clear();
+            // Clear votes                                              <-------------- creates a race condition
+            // shared_vote.lock().unwrap().clear();
             
             if all_voted_yes {
                 // restart game
@@ -162,6 +160,19 @@ pub fn get_valid_input<T: ValidInput>(max: u32, in_port: &mut impl BufRead, out_
             writeln!(out_port, "{msg}, try again.").unwrap();
             get_valid_input(max, in_port, out_port)
 
+        }
+    }
+}
+
+impl ValidInput for bool {
+    fn parse_and_validate(input: &String, _max: u32) -> Result<bool, String> {
+        let trimmed = input.trim();
+        let mut chars = trimmed.chars();
+        match (chars.next(), chars.next()) {
+            // single-character validation
+            (Some(c), None) if c == 'y' => Ok(true),
+            (Some(c), None) if c == 'n' => Ok(false),
+            _ => Err("expected y or n".to_string()),
         }
     }
 }
