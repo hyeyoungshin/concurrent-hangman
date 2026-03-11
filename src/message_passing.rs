@@ -70,46 +70,45 @@ fn handle_request(request: &Request, game: &mut Game, last_displayed: &mut HashM
 
 // Client Actor
 fn handle_client(reader: &mut BufReader<TcpStream>, writer: &mut LineWriter<TcpStream>, player_id: u32, state_update_channel: &Sender<Request>) {
+    // Register once at the start
+    match sync_message(state_update_channel, Msg::RegisterPlayer(player_id)) {
+        Response::PlayerRegistered => writeln!(writer, "You are player {player_id}").unwrap(),
+        _ => panic!("response mismatch"),
+    }
+
     loop {
-        match sync_message(state_update_channel, Msg::RegisterPlayer(player_id)) {
-            Response::PlayerRegistered => {
-                writeln!(writer, "You are player {player_id}").unwrap();
+        // 1. Display state
+        let game = match sync_message(state_update_channel, Msg::DisplayState(player_id)) {
+            Response::DisplayState(game) => game,
+            _ => panic!("response mismatch"),
+        };
+        writeln!(writer, "{}", game.state_view(&player_id)).unwrap();
 
-                match sync_message(state_update_channel, Msg::DisplayState(player_id)) {
-                    Response::DisplayState(game) => {
-                        writeln!(writer, "{}", game.state_view(&player_id)).unwrap();
-                        
-                        writeln!(writer, "Guess a letter.").unwrap();
+        // 2. Get input
+        // Wrap it in Action
+        writeln!(writer, "Guess a letter.").unwrap();
+        let a = Action {
+            player_id,
+            guess: get_valid_input_RW(0, reader, writer),
+        };
 
-                        let a = Action {
-                            player_id, 
-                            guess: get_valid_input_RW(0, reader, writer)
-                        };
-
-                        match sync_message(state_update_channel, Msg::ProcessAction(a)) {
-                            Response::GameOver(game) => {
-                                match game.get_winner(){
-                                    Some(winner) => {
-                                        writeln!(writer, "Sorry, player {winner} won in the meantime!").unwrap();
-                                    },
-                                    None => {
-                                        writeln!(writer, "Nobody guessed the secret word: {}", game.get_secret_word()).unwrap();
-                                    }
-                                }
-                            },
-                            Response::PlayerEliminated => {
-                                writeln!(writer, "You've been eliminated.").unwrap();
-                            },
-                            Response::ActionCommitted => { 
-                                // Guess recorded, game continues — loop again
-                            },
-                            _ => { panic!("response mismatch"); }
-                        } // 3rd sync message
-                    },
-                    _ => { panic!("response mismatch"); }
+        // 3. Process action
+        match sync_message(state_update_channel, Msg::ProcessAction(a)) {
+            Response::GameOver(game) => {
+                match game.get_winner() {
+                    Some(winner) => writeln!(writer, "Sorry, player {winner} won in the meantime!").unwrap(),
+                    None => writeln!(writer, "Nobody guessed the secret word: {}", game.get_secret_word()).unwrap(),
                 }
+                break;
             },
-            _ => { panic!("response mismatch"); }    
+            Response::PlayerEliminated => {
+                writeln!(writer, "You've been eliminated.").unwrap();
+                break;
+            },
+            Response::ActionCommitted => {
+                // Guess recorded, game continues — loop again
+            },
+            _ => panic!("response mismatch"),
         }
     }
 }
