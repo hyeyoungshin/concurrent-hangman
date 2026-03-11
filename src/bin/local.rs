@@ -1,7 +1,11 @@
 use hangman::common::*;
 
 fn game_loop() {
-    let mut game = Game::start_test_game("hello");
+    println!("Enter desired secret word length: ");
+    let secret_word_len = get_valid_input(WORD_MAX_LEN);
+    
+    let mut game = Game::start_game(secret_word_len);
+    
     while !game.game_over() {
         println!("which player?");
         let player_id: PlayerId = get_valid_input(MAX_NUM_PLAYERS);
