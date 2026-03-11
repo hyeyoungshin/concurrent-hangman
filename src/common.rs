@@ -43,12 +43,11 @@ impl Game {
 
     }
 
-    pub fn start_game(word_len: u32) -> Self {
+    pub fn start_game(secret_word_len: u32) -> Self {
         use random_word::Lang;
-        println!("Enter the length of the word.");
 
         Game {
-            secret_word: random_word::get_len(word_len as usize, Lang::En).unwrap().to_string(),
+            secret_word: random_word::get_len(secret_word_len as usize, Lang::En).unwrap().to_string(),
             correct_guess: HashSet::new(),
             players: HashMap::new(),
             winner: None,
@@ -264,6 +263,40 @@ pub fn get_valid_input<T: ValidInput>(max: u32) -> T {
     }
 }
 
-fn broadcast () {
+use std::io::{BufRead, Write};
 
+pub fn get_valid_input_RW<T: ValidInput>(max: u32, in_port: &mut impl BufRead, out_port: &mut impl Write) -> T {
+    let mut input = String::new();
+
+    let result = in_port.read_line(&mut input);
+
+    match result {
+        Ok(_) => {
+            match T::parse_and_validate(&input, max) {
+                Ok(val) => return val,
+                Err(msg) => {
+                    writeln!(out_port, "{msg}, try again.").unwrap();
+                    get_valid_input_RW(max, in_port, out_port)
+                }
+            }
+        },
+        Err(msg) => {
+            writeln!(out_port, "{msg}, try again.").unwrap();
+            get_valid_input_RW(max, in_port, out_port)
+
+        }
+    }
+}
+
+impl ValidInput for bool {
+    fn parse_and_validate(input: &String, _max: u32) -> Result<bool, String> {
+        let trimmed = input.trim();
+        let mut chars = trimmed.chars();
+        match (chars.next(), chars.next()) {
+            // single-character validation
+            (Some(c), None) if c == 'y' => Ok(true),
+            (Some(c), None) if c == 'n' => Ok(false),
+            _ => Err("expected y or n".to_string()),
+        }
+    }
 }
