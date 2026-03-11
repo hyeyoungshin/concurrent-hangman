@@ -1,11 +1,15 @@
 use std::net::{TcpListener, TcpStream};
 use std::thread;
 use std::sync::{Arc, Mutex, Barrier};
-use std::io::{BufReader, LineWriter, Write, BufRead};
+use std::io::{BufReader, LineWriter, Write, Read};
 
 use crate::common::*;
 
-pub fn server(addr: &str, initial_state: Game, num_players: u32) {
+pub fn server() {
+    server_with_config("0.0.0.0:7878", Game::start_game(WORD_MAX_LEN), 2); 
+}
+
+pub fn server_with_config(addr: &str, initial_state: Game, num_players: u32) {
     let listener = TcpListener::bind(addr).unwrap();
 
     let shared_game = Arc::new(Mutex::new(initial_state));
@@ -75,7 +79,7 @@ pub fn handle_client(mut reader: BufReader<TcpStream>, mut writer: LineWriter<Tc
 
                 // something goes wrong here 
                 // need to implement get_valid_input that takes reader and writer
-                let player_guess: char = get_valid_input(0, &mut reader, &mut writer);
+                let player_guess: char = get_valid_input_RW(0, &mut reader, &mut writer);
 
                 if !try_and_commit_play(&shared_game, player_id, &player_guess) {
                     writeln!(writer, "sorry, the secret word is revealed in the meantime!").unwrap();
@@ -86,7 +90,7 @@ pub fn handle_client(mut reader: BufReader<TcpStream>, mut writer: LineWriter<Tc
         // Session starts after the first game is over
         writeln!(writer, "play again? (y/n)").unwrap();
         
-        let player_vote: bool = get_valid_input(0, &mut reader, &mut writer);
+        let player_vote: bool = get_valid_input_RW(0, &mut reader, &mut writer);
 
         {
             let mut shared_vote = shared_vote.lock().unwrap();
@@ -107,8 +111,8 @@ pub fn handle_client(mut reader: BufReader<TcpStream>, mut writer: LineWriter<Tc
             
             if all_voted_yes {
                 // restart game
-                writeln!(writer, "Enter the lenght of the secret word < 10: ").unwrap();
-                let new_secret_word_len: u32 = get_valid_input(WORD_MAX_LEN, &mut reader, &mut writer);
+                writeln!(writer, "Enter the lenght of the secret word < {WORD_MAX_LEN}: ").unwrap();
+                let new_secret_word_len: u32 = get_valid_input_RW(WORD_MAX_LEN, &mut reader, &mut writer);
                 *shared_game.lock().unwrap() = Game::start_game(new_secret_word_len);
             }            
         } 
@@ -138,41 +142,5 @@ pub fn try_and_commit_play(game: &Arc<Mutex<Game>>, player_id: &PlayerId, player
     } else {
         *current_game = current_game.play(player_id, player_guess);
         true
-    }
-}
-
-pub fn get_valid_input<T: ValidInput>(max: u32, in_port: &mut impl BufRead, out_port: &mut impl Write) -> T {
-    let mut input = String::new();
-
-    let result = in_port.read_line(&mut input);
-
-    match result {
-        Ok(_) => {
-            match T::parse_and_validate(&input, max) {
-                Ok(val) => return val,
-                Err(msg) => {
-                    writeln!(out_port, "{msg}, try again.").unwrap();
-                    get_valid_input(max, in_port, out_port)
-                }
-            }
-        },
-        Err(msg) => {
-            writeln!(out_port, "{msg}, try again.").unwrap();
-            get_valid_input(max, in_port, out_port)
-
-        }
-    }
-}
-
-impl ValidInput for bool {
-    fn parse_and_validate(input: &String, _max: u32) -> Result<bool, String> {
-        let trimmed = input.trim();
-        let mut chars = trimmed.chars();
-        match (chars.next(), chars.next()) {
-            // single-character validation
-            (Some(c), None) if c == 'y' => Ok(true),
-            (Some(c), None) if c == 'n' => Ok(false),
-            _ => Err("expected y or n".to_string()),
-        }
     }
 }
