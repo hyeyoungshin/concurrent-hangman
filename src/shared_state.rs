@@ -6,7 +6,7 @@ use std::io::{BufReader, LineWriter, Write, Read};
 use crate::common::*;
 
 pub fn server() {
-    server_with_config("0.0.0.0:7878", Game::start_game(WORD_MAX_LEN), 2); 
+    server_with_config("0.0.0.0:7878", Game::start_game(WORD_DEFAULT_LEN), 2); 
 }
 
 pub fn server_with_config(addr: &str, initial_state: Game, num_players: u32) {

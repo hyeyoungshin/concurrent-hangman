@@ -119,7 +119,7 @@ fn handle_client(reader: &mut BufReader<TcpStream>, writer: &mut LineWriter<TcpS
 }
 
 pub fn server() {
-    server_with_config("127.0.0.1:7878", Game::start_game(5), 2);
+    server_with_config("127.0.0.1:7878", Game::start_game(WORD_DEFAULT_LEN), 2);
 }
 
 pub fn server_with_config(addr: &str, initial_state: Game, num_players: u32) {
