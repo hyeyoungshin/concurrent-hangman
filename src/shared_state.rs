@@ -42,7 +42,7 @@ pub fn server_with_config(addr: &str, initial_state: Game, num_players: u32) {
 
 pub fn handle_client(mut reader: BufReader<TcpStream>, mut writer: LineWriter<TcpStream>, 
     player_id: &PlayerId, shared_game: Arc<Mutex<Game>>, barrier: Arc<Barrier>, shared_vote: Arc<Mutex<HashMap<PlayerId, Option<bool>>>>) {
-    
+    // Register player
     writeln!(writer, "you are player {player_id}").unwrap();
     {
         let mut game = shared_game.lock().unwrap();

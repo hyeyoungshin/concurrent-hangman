@@ -20,7 +20,6 @@ enum Msg {
 enum Response {
     PlayerRegistered,
     DisplayState(Game),
-    GameOver(Game),
     PlayerEliminated,
     ActionCommitted,
 }
@@ -43,78 +42,84 @@ fn sync_message(state_actor: &Sender<Request>, msg: Msg) -> Response {
 }
 
 // State Actor (Business logic)
-fn handle_request(request: &Request, game: &mut Game, last_displayed: &mut HashMap<PlayerId, Game>) -> Response {
+fn handle_request(request: &Request, game_state: &mut Game, last_displayed: &mut HashMap<PlayerId, Game>) -> Response {
     match &request.msg {
         Msg::RegisterPlayer(player_id) => {
-            *game = game.register_player(player_id);
+            *game_state = game_state.register_player(player_id);
             Response::PlayerRegistered
         },
         Msg::DisplayState(player_id) => {
-            last_displayed.insert(*player_id, game.clone());
-            Response::DisplayState(game.clone())
+            last_displayed.insert(*player_id, game_state.clone());
+            Response::DisplayState(game_state.clone())
         },
         Msg::ProcessAction(a) => {
-            if game.game_over() {
-                Response::GameOver(game.clone())
+            *game_state = game_state.play(&a.player_id, &a.guess);
+            if game_state.get_player_state(&a.player_id).is_eliminated() {
+                Response::PlayerEliminated
             } else {
-                *game = game.play(&a.player_id, &a.guess);
-                if game.get_player_state(&a.player_id).is_eliminated() {
-                    Response::PlayerEliminated
-                } else {
-                    Response::ActionCommitted 
-                }
+                Response::ActionCommitted
             }
         }
     }
 }
 
 // Client Actor
-fn handle_client(reader: &mut BufReader<TcpStream>, writer: &mut LineWriter<TcpStream>, player_id: u32, state_update_channel: &Sender<Request>) {
-    // Register once at the start
-    match sync_message(state_update_channel, Msg::RegisterPlayer(player_id)) {
+fn handle_client(reader: &mut BufReader<TcpStream>, writer: &mut LineWriter<TcpStream>, player_id: &PlayerId, state_update_channel: &Sender<Request>) {
+    // Register player
+    match sync_message(state_update_channel, Msg::RegisterPlayer(*player_id)) {
         Response::PlayerRegistered => writeln!(writer, "You are player {player_id}").unwrap(),
         _ => panic!("response mismatch"),
     }
 
-    loop {
-        // 1. Display state
-        let game = match sync_message(state_update_channel, Msg::DisplayState(player_id)) {
+    let mut last_view = String::new();
+
+        'game: loop {
+        // 1. Get current game state
+        let current_game = match sync_message(state_update_channel, Msg::DisplayState(*player_id)) {
             Response::DisplayState(game) => game,
-            _ => panic!("response mismatch"),
-        };
-        writeln!(writer, "{}", game.state_view(&player_id)).unwrap();
-
-        // 2. Get input
-        // Wrap it in Action
-        writeln!(writer, "Guess a letter.").unwrap();
-        let a = Action {
-            player_id,
-            guess: get_valid_input_RW(0, reader, writer),
+            _ => panic!("response mismatch"), // TODO: not sure if I need this here
         };
 
-        // 3. Process action
-        match sync_message(state_update_channel, Msg::ProcessAction(a)) {
-            Response::GameOver(game) => {
-                match game.get_winner() {
-                    Some(winner) => writeln!(writer, "Sorry, player {winner} won in the meantime!").unwrap(),
-                    None => writeln!(writer, "Nobody guessed the secret word: {}", game.get_secret_word()).unwrap(),
-                }
-                break;
-            },
-            Response::PlayerEliminated => {
-                writeln!(writer, "You've been eliminated.").unwrap();
-                break;
-            },
-            Response::ActionCommitted => {
-                // Guess recorded, game continues — loop again
-            },
-            _ => panic!("response mismatch"),
+        let view = current_game.state_view(&player_id);
+
+        if view != last_view {
+            writeln!(writer, "{}", view).unwrap();
+            last_view = view
+        }
+
+        if current_game.game_over() {
+            match current_game.get_winner() {
+                Some(winner) if winner == *player_id => { writeln!(writer, "Congratulation, you won!").unwrap(); },
+                Some(winner) => { writeln!(writer, "Player {} won.", winner).unwrap(); }
+                None => { writeln!(writer, "Nobody guuessed the secret word: {}", current_game.get_secret_word()).unwrap(); }
+            }
+            break 'game;
+        } else if current_game.get_player_state(player_id).is_eliminated() {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        } else {
+            // 2. Get input, if game is not over and player has not been eliminated
+            writeln!(writer, "Guess a letter.").unwrap();
+            let a = Action {
+                player_id: *player_id,
+                guess: get_valid_input_RW(0, reader, writer),
+            };
+
+            // 3. Process action
+            match sync_message(state_update_channel, Msg::ProcessAction(a)) {
+                Response::PlayerEliminated => {
+                    writeln!(writer, "You've been eliminated.").unwrap();
+                },
+                Response::ActionCommitted => {
+                    // Guess recorded, game continues — loop again
+                },
+                _ => panic!("response mismatch"),
+            }
         }
     }
 }
 
 pub fn server() {
-    server_with_config("127.0.0.1:7878", Game::start_game(WORD_MAX_LEN), 2);
+    server_with_config("127.0.0.1:7878", Game::start_game(5), 2);
 }
 
 pub fn server_with_config(addr: &str, initial_state: Game, num_players: u32) {
@@ -127,11 +132,11 @@ pub fn server_with_config(addr: &str, initial_state: Game, num_players: u32) {
     // which handles client's request and 
     // send response back 
     thread::spawn(move || {
-        let mut state = initial_state;
+        let mut game_state = initial_state;
         let mut last_displayed = HashMap::new();
 
         for request in state_rx {
-            let response = handle_request(&request, &mut state, &mut last_displayed);
+            let response = handle_request(&request, &mut game_state, &mut last_displayed);
             request.reply_to.send(response).unwrap();
         }
     });
@@ -145,7 +150,7 @@ pub fn server_with_config(addr: &str, initial_state: Game, num_players: u32) {
 
         let state_tx = state_tx.clone();
         let handle = thread::spawn(move || {
-            handle_client(&mut reader, &mut writer, player_id, &state_tx);
+            handle_client(&mut reader, &mut writer, &player_id, &state_tx);
         });
 
         handles.push(handle)
