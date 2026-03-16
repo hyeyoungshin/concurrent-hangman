@@ -4,4 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-random_word = { version = "0.5.2", features = ["en"] }
+rand = "0.9"
+tokio = { version = "1.50.0", features = ["rt", "net", "io-util", "macros"] }
