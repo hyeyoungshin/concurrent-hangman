@@ -1,4 +1,5 @@
 pub use std::collections::{HashMap, HashSet};
+use crate::words::COMMON_WORDS;
 
 // 
 // Data Types
@@ -29,6 +30,7 @@ impl PlayerState {
 // Game Logic
 // 
 pub const WORD_MAX_LEN: u32 = 9;
+pub const WORD_DEFAULT_LEN: u32 = 5;
 pub const MAX_WRONG_GUESSES: u32 = 6;
 pub const MAX_NUM_PLAYERS: u32 = 10;
 
@@ -44,10 +46,17 @@ impl Game {
     }
 
     pub fn start_game(secret_word_len: u32) -> Self {
-        use random_word::Lang;
+        use rand::seq::IteratorRandom;
+
+        let word = COMMON_WORDS.iter()
+            .copied()
+            .filter(|w| w.len() == secret_word_len as usize)
+            .choose(&mut rand::rng())
+            .expect("no word of that length in word list")
+            .to_string();
 
         Game {
-            secret_word: random_word::get_len(secret_word_len as usize, Lang::En).unwrap().to_string(),
+            secret_word: word,
             correct_guess: HashSet::new(),
             players: HashMap::new(),
             winner: None,
