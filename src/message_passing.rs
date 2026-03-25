@@ -41,11 +41,12 @@ fn sync_message(state_actor: &Sender<Request>, msg: Msg) -> Response {
     resp_rx.recv().unwrap()
 }
 
+
 // State Actor (Business logic)
 fn handle_request(request: &Request, game_state: &mut Game, last_displayed: &mut HashMap<PlayerId, Game>) -> Response {
     match &request.msg {
         Msg::RegisterPlayer(player_id) => {
-            *game_state = game_state.register_player(player_id);
+            *game_state = game_state.register_player();
             Response::PlayerRegistered
         },
         Msg::DisplayState(player_id) => {
@@ -73,7 +74,7 @@ fn handle_client(reader: &mut BufReader<TcpStream>, writer: &mut LineWriter<TcpS
 
     let mut last_view = String::new();
 
-        'game: loop {
+    'game: loop {
         // 1. Get current game state
         let current_game = match sync_message(state_update_channel, Msg::DisplayState(*player_id)) {
             Response::DisplayState(game) => game,
@@ -101,7 +102,7 @@ fn handle_client(reader: &mut BufReader<TcpStream>, writer: &mut LineWriter<TcpS
             writeln!(writer, "Guess a letter.").unwrap();
             let a = Action {
                 player_id: *player_id,
-                guess: get_valid_input_RW(0, reader, writer),
+                guess: get_valid_input(reader, writer),
             };
 
             // 3. Process action
