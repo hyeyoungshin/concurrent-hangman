@@ -1,5 +1,6 @@
 pub use std::collections::{HashMap, HashSet};
 use crate::words::COMMON_WORDS;
+use std::io::{BufRead, Write};
 
 // 
 // Data Types
@@ -10,9 +11,10 @@ pub type WrongGuess = HashSet<char>;
 #[derive(Clone)]
 pub struct Game {
     secret_word: String,
-    correct_guess: HashSet<char>, // Set of chars correctly guessed so far
+    correct_guess: HashSet<char>,
     players: HashMap<PlayerId, PlayerState>,
-    winner: Option<PlayerId>
+    winner: Option<PlayerId>,
+    next_id: u32,                 // to auto-assign player id at registration
 }
 
 #[derive(Clone)]
@@ -32,56 +34,40 @@ impl PlayerState {
 pub const WORD_MAX_LEN: u32 = 9;
 pub const WORD_DEFAULT_LEN: u32 = 5;
 pub const MAX_WRONG_GUESSES: u32 = 6;
-pub const MAX_NUM_PLAYERS: u32 = 10;
 
 impl Game {
-    pub fn new(secret_word: String, correct_guess: HashSet<char>, players: HashMap<PlayerId, PlayerState>, winner: Option<PlayerId>) -> Self {
+    fn new(secret_word: String) -> Self {
         Game {
             secret_word,
-            correct_guess: correct_guess,
-            players,
-            winner,
+            correct_guess: HashSet::new(),
+            players: HashMap::new(),
+            winner: None,
+            next_id: 0,
         }
-
     }
 
     pub fn start_game(secret_word_len: u32) -> Self {
-        use rand::seq::IteratorRandom;
-
-        let word = COMMON_WORDS.iter()
-            .copied()
-            .filter(|w| w.len() == secret_word_len as usize)
-            .choose(&mut rand::rng())
-            .expect("no word of that length in word list")
-            .to_string();
-
-        Game {
-            secret_word: word,
-            correct_guess: HashSet::new(),
-            players: HashMap::new(),
-            winner: None,
-        }
+        Game::new(frequently_used_word_of_len(secret_word_len))
     }
 
-    pub fn start_test_game(secret_word: &str) -> Self {
-        Game {
-            secret_word: secret_word.to_string(),
-            correct_guess: HashSet::new(),
-            players: HashMap::new(),
-            winner: None,
-        }
+    // For tests only!
+    pub fn start_game_with_word(secret_word: &str) -> Self {
+        Game::new(secret_word.to_string())
     }
 
-    // All connected players need to be in the players map from the start for game over conditions
-    pub fn register_player(&self, player_id: &PlayerId) -> Self {
+    // Initialize players
+    // Auto-assign id to each player
+    // This was important for game over condition to satisfy non-trivially
+    pub fn register_player(&self) -> Self {
         let mut new_map = self.players.clone();
-        new_map.entry(*player_id).or_insert(PlayerState { wrong_guess: HashSet::new() });
+        new_map.entry(self.next_id).or_insert(PlayerState { wrong_guess: HashSet::new() });
 
         Game {
             secret_word: self.secret_word.clone(),
             correct_guess: self.correct_guess.clone(),
             players: new_map,
             winner: self.winner,
+            next_id: self.next_id + 1
         }
     }
 
@@ -175,6 +161,7 @@ impl Game {
                 correct_guess: self.correct_guess.clone(),
                 players: self.players.clone(),
                 winner: self.winner,
+                next_id: self.next_id,
             }
         } else if self.is_correct_guess(guess) {
                 let mut new_correct = self.correct_guess.clone();
@@ -188,6 +175,7 @@ impl Game {
                         correct_guess: new_correct,
                         players: self.players.clone(),
                         winner: Some(*player_id),
+                        next_id: self.next_id,
                     }
                 } else {
                 // game continues
@@ -196,6 +184,7 @@ impl Game {
                         correct_guess: new_correct,
                         players: self.players.clone(),
                         winner: self.winner,
+                        next_id: self.next_id,
                     }
                 }
         } else {
@@ -211,10 +200,12 @@ impl Game {
                 correct_guess: self.get_correct_guess().clone(),
                 players: new_map,
                 winner: self.winner,
+                next_id: self.next_id,
             }
         }
     }
 }
+
 
 //
 // Parsing and Validation 
@@ -224,22 +215,22 @@ impl Game {
 // ---its size known at compile time"
 // which allows use of Self in return/value position freely throughout the trait
 pub trait ValidInput: Sized {
-    fn parse_and_validate(input: &String, max: u32) -> Result<Self, String>;
+    fn parse_and_validate(input: &String) -> Result<Self, String>;
 }
 
 impl ValidInput for u32 {
-    fn parse_and_validate(input: &String, max: u32) -> Result<u32, String> {
+    fn parse_and_validate(input: &String) -> Result<u32, String> {
         input.trim()
             .parse::<u32>()
             .map_err(|_| "expected a number".to_string())
             .and_then(|n| {
-                if n < max { Ok(n) } else { Err(format!("must be less than {max}")) } 
+                if n < WORD_MAX_LEN { Ok(n) } else { Err(format!("must be less than {WORD_MAX_LEN}")) } 
             })
     }
 }
 
 impl ValidInput for char {
-    fn parse_and_validate(input: &String, _max: u32) -> Result<char, String> {
+    fn parse_and_validate(input: &String) -> Result<char, String> {
         let trimmed = input.trim();
         let mut chars = trimmed.chars();
         match (chars.next(), chars.next()) {
@@ -251,54 +242,27 @@ impl ValidInput for char {
 }
 
 // T inferred not by the argument type but by how the argument is used downstream
-pub fn get_valid_input<T: ValidInput>(max: u32) -> T {
-    use std::io;
-
+pub fn get_valid_input<T: ValidInput>(mut reader: impl BufRead, mut writer: impl Write) -> T {
     let mut input = String::new();
     loop {
         input.clear();
         // instead of asking "is T a number?", let each type declare how it validates itself via the trait
-        match io::stdin().read_line(&mut input) {
-            Ok(_) => match T::parse_and_validate(&input, max) {
+        match reader.read_line(&mut input) {
+            Ok(_) => match T::parse_and_validate(&input) {
                 Ok(val) => return val,
                 Err(msg) => {
-                    println!("{msg}, try again.")
+                    writeln!(writer, "{msg}, try again.");
                 }
             },
             Err(_) => {
-                println!("failed to read input, try again.")
+                writeln!(writer, "failed to read input, try again.");
             }
-        }
-    }
-}
-
-use std::io::{BufRead, Write};
-
-pub fn get_valid_input_RW<T: ValidInput>(max: u32, in_port: &mut impl BufRead, out_port: &mut impl Write) -> T {
-    let mut input = String::new();
-
-    let result = in_port.read_line(&mut input);
-
-    match result {
-        Ok(_) => {
-            match T::parse_and_validate(&input, max) {
-                Ok(val) => return val,
-                Err(msg) => {
-                    writeln!(out_port, "{msg}, try again.").unwrap();
-                    get_valid_input_RW(max, in_port, out_port)
-                }
-            }
-        },
-        Err(msg) => {
-            writeln!(out_port, "{msg}, try again.").unwrap();
-            get_valid_input_RW(max, in_port, out_port)
-
         }
     }
 }
 
 impl ValidInput for bool {
-    fn parse_and_validate(input: &String, _max: u32) -> Result<bool, String> {
+    fn parse_and_validate(input: &String) -> Result<bool, String> {
         let trimmed = input.trim();
         let mut chars = trimmed.chars();
         match (chars.next(), chars.next()) {
@@ -309,3 +273,31 @@ impl ValidInput for bool {
         }
     }
 }
+
+
+//
+// Presentation/I/O
+// 
+// For the multiplayer TCP version, pass the LineWriter<TcpStream>
+// For the local single-player version, pass std::io::stdout()
+pub fn announce_winner(winner: Option<PlayerId>, player_id: &PlayerId, secret_word: String, mut writer: impl Write) {
+    match winner {
+        Some(winner) if winner == *player_id => { writeln!(writer, "Congratulation, you won!").unwrap(); },
+        Some(winner) => { writeln!(writer, "Player {} won.", winner).unwrap(); }
+        None => { writeln!(writer, "Nobody won... secret word is {}", secret_word).unwrap(); }
+    }
+}
+
+// 
+// Helpers
+//
+pub fn frequently_used_word_of_len(word_len: u32) -> String {
+        use rand::seq::IteratorRandom;
+
+        COMMON_WORDS.iter()
+            .copied()
+            .filter(|w| w.len() == word_len as usize)
+            .choose(&mut rand::rng())
+            .expect("no word of that length in word list")
+            .to_string()
+    }

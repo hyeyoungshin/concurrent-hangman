@@ -1,19 +1,25 @@
 use hangman::common::*;
+use std::io::BufReader;
 
+// TODO: update to follow the new game flow
+// 1. fixed word length
+// 2. register player
 fn game_loop() {
-    println!("Enter desired secret word length: ");
-    let secret_word_len = get_valid_input(WORD_MAX_LEN);
+    println!("Enter secret word length: ");
+    let secret_word_len = get_valid_input(BufReader::new(std::io::stdin()), stdout());
     
-    let mut game = Game::start_game(secret_word_len);
+    let mut game = Game::start_gam_wit_len(secret_word_len);
+    game.register_player();
+
     
     while !game.game_over() {
         println!("which player?");
-        let player_id: PlayerId = get_valid_input(MAX_NUM_PLAYERS);
+        let player_id: PlayerId = get_valid_input(BufReader::new(std::io::stdin()), stdout());
         
         println!("{}", game.state_view(&player_id));
         
         println!("Guess a letter.");
-        let player_guess: char = get_valid_input(0);
+        let player_guess: char = get_valid_input(BufReader::new(std::io::stdin()), stdout());
         
         game = game.play(&player_id, &player_guess)
     }
@@ -34,25 +40,40 @@ mod tests {
     use super::*;
 
     // ── helpers ──────────────────────────────────────────────────────────────
-
     fn make_game(word: &str, correct: &[char], players: &[(PlayerId, &[char])]) -> Game {
-        Game::new (
-            word.to_string(),
-            correct.iter().copied().collect(),
-            players.iter().map(|&(id, wrong)| {
-                (id, PlayerState { wrong_guess: wrong.iter().copied().collect() })
-            }).collect(),
-            None,
-        )
+        let mut game = Game::start_game_with_word(word);
+
+        for _ in players {
+            game = game.register_player();
+        }
+
+        // Correct guesses via player 0: correct plays never add the player to the map,
+        // so this works whether player 0 is registered or not
+        for &c in correct {
+            game = game.play(&0, &c);
+        }
+
+        // Players are auto-assigned ids 0, 1, ... in registration order
+        for (i, (_, wrong)) in players.iter().enumerate() {
+            let id = i as PlayerId;
+            for &c in *wrong {
+                game = game.play(&id, &c);
+            }
+        }
+
+        game
     }
 
     fn make_game_over(word: &str, winner: PlayerId) -> Game {
-        Game::new(
-            word.to_string(),
-            HashSet::new(),
-            HashMap::new(),
-            Some(winner),
-        )
+        let mut game = Game::start_game_with_word(word);
+        for _ in 0..=winner {
+            game = game.register_player();
+        }
+        let unique_chars: HashSet<char> = word.chars().collect();
+        for c in unique_chars {
+            game = game.play(&winner, &c);
+        }
+        game
     }
 
     // ── word_view ─────────────────────────────────────────────────────────────
@@ -104,7 +125,7 @@ mod tests {
     fn game_over_false_when_only_one_of_two_eliminated() {
         let g = make_game("apple", &[], &[
             (1, &['z', 'q', 'x', 'v', 'b', 'n']),  // eliminated
-            (2, &['z']),                              // still active
+            (2, &['z']),                           // still active
         ]);
         assert!(!g.game_over());
     }
