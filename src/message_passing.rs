@@ -11,7 +11,7 @@ struct Request {
 }
 
 enum Msg {
-    RegisterPlayer(PlayerId),
+    RegisterPlayer,
     DisplayState(PlayerId),
     ProcessAction(Action),
 }
@@ -45,7 +45,7 @@ fn sync_message(state_actor: &Sender<Request>, msg: Msg) -> Response {
 // State Actor (Business logic)
 fn handle_request(request: &Request, game_state: &mut Game, last_displayed: &mut HashMap<PlayerId, Game>) -> Response {
     match &request.msg {
-        Msg::RegisterPlayer(player_id) => {
+        Msg::RegisterPlayer => {
             *game_state = game_state.register_player();
             Response::PlayerRegistered
         },
@@ -65,9 +65,9 @@ fn handle_request(request: &Request, game_state: &mut Game, last_displayed: &mut
 }
 
 // Client Actor
-fn handle_client(reader: &mut BufReader<TcpStream>, writer: &mut LineWriter<TcpStream>, player_id: &PlayerId, state_update_channel: &Sender<Request>) {
+fn handle_client(mut reader: BufReader<TcpStream>, mut writer: LineWriter<TcpStream>, player_id: &PlayerId, state_update_channel: &Sender<Request>) {
     // Register player
-    match sync_message(state_update_channel, Msg::RegisterPlayer(*player_id)) {
+    match sync_message(state_update_channel, Msg::RegisterPlayer) {
         Response::PlayerRegistered => writeln!(writer, "You are player {player_id}").unwrap(),
         _ => panic!("response mismatch"),
     }
@@ -102,7 +102,7 @@ fn handle_client(reader: &mut BufReader<TcpStream>, writer: &mut LineWriter<TcpS
             writeln!(writer, "Guess a letter.").unwrap();
             let a = Action {
                 player_id: *player_id,
-                guess: get_valid_input(reader, writer),
+                guess: get_valid_input(&mut reader, &mut writer),
             };
 
             // 3. Process action
@@ -146,12 +146,12 @@ pub fn server_with_config(addr: &str, initial_state: Game, num_players: u32) {
 
     for player_id in 0..num_players {
         let (stream, _addr) = listener.accept().unwrap();
-        let mut reader = BufReader::new(stream.try_clone().unwrap());
-        let mut writer = LineWriter::new(stream);
+        let reader = BufReader::new(stream.try_clone().unwrap());
+        let writer = LineWriter::new(stream);
 
         let state_tx = state_tx.clone();
         let handle = thread::spawn(move || {
-            handle_client(&mut reader, &mut writer, &player_id, &state_tx);
+            handle_client(reader, writer, &player_id, &state_tx);
         });
 
         handles.push(handle)
