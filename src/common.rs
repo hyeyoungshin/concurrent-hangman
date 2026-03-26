@@ -32,6 +32,7 @@ impl PlayerState {
 // Game Logic
 // 
 pub const WORD_MAX_LEN: u32 = 9;
+pub const WORD_MIN_LEN: u32 = 4;
 pub const WORD_DEFAULT_LEN: u32 = 5;
 pub const MAX_WRONG_GUESSES: u32 = 6;
 
@@ -224,7 +225,7 @@ impl ValidInput for u32 {
             .parse::<u32>()
             .map_err(|_| "expected a number".to_string())
             .and_then(|n| {
-                if n < WORD_MAX_LEN { Ok(n) } else { Err(format!("must be less than {WORD_MAX_LEN}")) } 
+                if n <= WORD_MAX_LEN && n >= WORD_MIN_LEN { Ok(n) } else { Err(format!("must be less than {WORD_MAX_LEN}")) } 
             })
     }
 }
