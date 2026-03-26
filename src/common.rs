@@ -243,11 +243,11 @@ pub fn get_valid_input<T: ValidInput>(reader: &mut impl BufRead, writer: &mut im
             Ok(_) => match T::parse_and_validate(&input) {
                 Ok(val) => return val,
                 Err(msg) => {
-                    writeln!(writer, "{msg}, try again.");
+                    writeln!(writer, "{msg}, try again.").unwrap();
                 }
             },
             Err(_) => {
-                writeln!(writer, "failed to read input, try again.");
+                writeln!(writer, "failed to read input, try again.").unwrap();
             }
         }
     }
@@ -284,12 +284,19 @@ pub fn announce_winner(winner: Option<PlayerId>, player_id: &PlayerId, secret_wo
 // Helpers
 //
 pub fn frequently_used_word_of_len(word_len: u32) -> String {
-use rand::seq::IteratorRandom;
+    use rand::seq::IteratorRandom;
 
-COMMON_WORDS.iter()
-    .copied()
-    .filter(|w| w.len() == word_len as usize)
-    .choose(&mut rand::rng())
-    .expect("no word of that length in word list")
-    .to_string()
+    COMMON_WORDS.iter()
+      .copied()
+      .filter(|w| w.len() == word_len as usize)
+      .choose(&mut rand::rng())
+      .expect("no word of that length in word list")
+      .to_string()
+}
+
+pub fn setup_game(reader: &mut impl BufRead, writer: &mut impl Write) -> Game {
+    println!("Enter secret word length: ");
+    let secret_word_len = get_valid_input(reader, writer);
+
+    Game::start_game(secret_word_len)
 }
