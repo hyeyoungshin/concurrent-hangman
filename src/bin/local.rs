@@ -1,26 +1,29 @@
 use hangman::common::*;
-use std::io::BufReader;
+use std::io::{BufReader, stdout};
 
 // TODO: update to follow the new game flow
 // 1. fixed word length
 // 2. register player
 fn game_loop() {
+    let mut reader = BufReader::new(std::io::stdin());
+    let mut writer = stdout();
+
     println!("Enter secret word length: ");
-    let secret_word_len = get_valid_input(BufReader::new(std::io::stdin()), stdout());
-    
-    let mut game = Game::start_gam_wit_len(secret_word_len);
+    let secret_word_len = get_valid_input(&mut reader, &mut writer);
+
+    let mut game = Game::start_game(secret_word_len);
     game.register_player();
 
-    
+
     while !game.game_over() {
         println!("which player?");
-        let player_id: PlayerId = get_valid_input(BufReader::new(std::io::stdin()), stdout());
-        
+        let player_id: PlayerId = get_valid_input(&mut reader, &mut writer);
+
         println!("{}", game.state_view(&player_id));
-        
+
         println!("Guess a letter.");
-        let player_guess: char = get_valid_input(BufReader::new(std::io::stdin()), stdout());
-        
+        let player_guess: char = get_valid_input(&mut reader, &mut writer);
+
         game = game.play(&player_id, &player_guess)
     }
 

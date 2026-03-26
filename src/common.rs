@@ -242,7 +242,7 @@ impl ValidInput for char {
 }
 
 // T inferred not by the argument type but by how the argument is used downstream
-pub fn get_valid_input<T: ValidInput>(mut reader: impl BufRead, mut writer: impl Write) -> T {
+pub fn get_valid_input<T: ValidInput>(reader: &mut impl BufRead, writer: &mut impl Write) -> T {
     let mut input = String::new();
     loop {
         input.clear();
