@@ -14,7 +14,6 @@ pub struct Game {
     correct_guess: HashSet<char>,
     players: HashMap<PlayerId, PlayerState>,
     winner: Option<PlayerId>,
-    next_id: u32,                 // to auto-assign player id at registration
 }
 
 #[derive(Clone)]
@@ -43,7 +42,6 @@ impl Game {
             correct_guess: HashSet::new(),
             players: HashMap::new(),
             winner: None,
-            next_id: 0,
         }
     }
 
@@ -52,23 +50,20 @@ impl Game {
     }
 
     // For tests only!
-    pub fn start_game_with_word(secret_word: &str) -> Self {
+    pub fn start_test_game(secret_word: &str) -> Self {
         Game::new(secret_word.to_string())
     }
 
-    // Initialize players
-    // Auto-assign id to each player
     // This was important for game over condition to satisfy non-trivially
-    pub fn register_player(&self) -> Self {
+    pub fn initialize_player(&self, player_id: &PlayerId) -> Self {
         let mut new_map = self.players.clone();
-        new_map.entry(self.next_id).or_insert(PlayerState { wrong_guess: HashSet::new() });
+        new_map.entry(*player_id).or_insert(PlayerState{ wrong_guess: HashSet::new() });
 
         Game {
             secret_word: self.secret_word.clone(),
             correct_guess: self.correct_guess.clone(),
             players: new_map,
             winner: self.winner,
-            next_id: self.next_id + 1
         }
     }
 
@@ -162,7 +157,6 @@ impl Game {
                 correct_guess: self.correct_guess.clone(),
                 players: self.players.clone(),
                 winner: self.winner,
-                next_id: self.next_id,
             }
         } else if self.is_correct_guess(guess) {
                 let mut new_correct = self.correct_guess.clone();
@@ -176,7 +170,6 @@ impl Game {
                         correct_guess: new_correct,
                         players: self.players.clone(),
                         winner: Some(*player_id),
-                        next_id: self.next_id,
                     }
                 } else {
                 // game continues
@@ -185,7 +178,6 @@ impl Game {
                         correct_guess: new_correct,
                         players: self.players.clone(),
                         winner: self.winner,
-                        next_id: self.next_id,
                     }
                 }
         } else {
@@ -201,7 +193,6 @@ impl Game {
                 correct_guess: self.get_correct_guess().clone(),
                 players: new_map,
                 winner: self.winner,
-                next_id: self.next_id,
             }
         }
     }
@@ -293,12 +284,12 @@ pub fn announce_winner(winner: Option<PlayerId>, player_id: &PlayerId, secret_wo
 // Helpers
 //
 pub fn frequently_used_word_of_len(word_len: u32) -> String {
-        use rand::seq::IteratorRandom;
+use rand::seq::IteratorRandom;
 
-        COMMON_WORDS.iter()
-            .copied()
-            .filter(|w| w.len() == word_len as usize)
-            .choose(&mut rand::rng())
-            .expect("no word of that length in word list")
-            .to_string()
-    }
+COMMON_WORDS.iter()
+    .copied()
+    .filter(|w| w.len() == word_len as usize)
+    .choose(&mut rand::rng())
+    .expect("no word of that length in word list")
+    .to_string()
+}

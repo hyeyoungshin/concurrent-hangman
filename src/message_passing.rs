@@ -11,7 +11,7 @@ struct Request {
 }
 
 enum Msg {
-    RegisterPlayer,
+    RegisterPlayer(PlayerId),
     DisplayState(PlayerId),
     ProcessAction(Action),
 }
@@ -45,8 +45,8 @@ fn sync_message(state_actor: &Sender<Request>, msg: Msg) -> Response {
 // State Actor (Business logic)
 fn handle_request(request: &Request, game_state: &mut Game, last_displayed: &mut HashMap<PlayerId, Game>) -> Response {
     match &request.msg {
-        Msg::RegisterPlayer => {
-            *game_state = game_state.register_player();
+        Msg::RegisterPlayer(id) => {
+            *game_state = game_state.initialize_player(id);
             Response::PlayerRegistered
         },
         Msg::DisplayState(player_id) => {
@@ -65,10 +65,10 @@ fn handle_request(request: &Request, game_state: &mut Game, last_displayed: &mut
 }
 
 // Client Actor
-fn handle_client(mut reader: BufReader<TcpStream>, mut writer: LineWriter<TcpStream>, player_id: &PlayerId, state_update_channel: &Sender<Request>) {
+fn handle_client(mut reader: BufReader<TcpStream>, mut writer: LineWriter<TcpStream>, id: PlayerId, state_update_channel: &Sender<Request>) {
     // Register player
-    match sync_message(state_update_channel, Msg::RegisterPlayer) {
-        Response::PlayerRegistered => writeln!(writer, "You are player {player_id}").unwrap(),
+    match sync_message(state_update_channel, Msg::RegisterPlayer(id)) {
+        Response::PlayerRegistered => writeln!(writer, "You are player {id}").unwrap(),
         _ => panic!("response mismatch"),
     }
 
@@ -76,12 +76,12 @@ fn handle_client(mut reader: BufReader<TcpStream>, mut writer: LineWriter<TcpStr
 
     'game: loop {
         // 1. Get current game state
-        let current_game = match sync_message(state_update_channel, Msg::DisplayState(*player_id)) {
+        let current_game = match sync_message(state_update_channel, Msg::DisplayState(id)) {
             Response::DisplayState(game) => game,
             _ => panic!("response mismatch"), // TODO: not sure if I need this here
         };
 
-        let view = current_game.state_view(&player_id);
+        let view = current_game.state_view(&id);
 
         if view != last_view {
             writeln!(writer, "{}", view).unwrap();
@@ -90,18 +90,18 @@ fn handle_client(mut reader: BufReader<TcpStream>, mut writer: LineWriter<TcpStr
 
         if current_game.game_over() {
             match current_game.get_winner() {
-                Some(winner) if winner == *player_id => { writeln!(writer, "Congratulation, you won!").unwrap(); },
+                Some(winner) if winner == id => { writeln!(writer, "Congratulation, you won!").unwrap(); },
                 Some(winner) => { writeln!(writer, "Player {} won.", winner).unwrap(); }
                 None => { writeln!(writer, "Nobody guuessed the secret word: {}", current_game.get_secret_word()).unwrap(); }
             }
             break 'game;
-        } else if current_game.get_player_state(player_id).is_eliminated() {
+        } else if current_game.get_player_state(&id).is_eliminated() {
             std::thread::sleep(std::time::Duration::from_secs(1));
         } else {
             // 2. Get input, if game is not over and player has not been eliminated
             writeln!(writer, "Guess a letter.").unwrap();
             let a = Action {
-                player_id: *player_id,
+                player_id: id,
                 guess: get_valid_input(&mut reader, &mut writer),
             };
 
@@ -151,7 +151,7 @@ pub fn server_with_config(addr: &str, initial_state: Game, num_players: u32) {
 
         let state_tx = state_tx.clone();
         let handle = thread::spawn(move || {
-            handle_client(reader, writer, &player_id, &state_tx);
+            handle_client(reader, writer, player_id, &state_tx);
         });
 
         handles.push(handle)

@@ -19,7 +19,7 @@ pub fn server_with_config(addr: &str, initial_state: Game, num_players: u32) {
 
     let mut handles = vec![];
 
-    for player_id in 0..num_players {
+    for id in 0..num_players {
         let(stream, _addr) = listener.accept().unwrap();
         let reader = BufReader::new(stream.try_clone().unwrap());
         let writer = LineWriter::new(stream);
@@ -32,7 +32,7 @@ pub fn server_with_config(addr: &str, initial_state: Game, num_players: u32) {
         let shared_vote = Arc::clone(&shared_vote);
 
         let handle = thread::spawn(move || {
-            handle_client(reader, writer, &player_id, shared_game, barrier, shared_vote)
+            handle_client(id, reader, writer, shared_game, barrier, shared_vote)
         });
         
         handles.push(handle);
@@ -61,6 +61,44 @@ fn update_view(last_view: &mut String, current_view: String) -> bool {
     } else {
         false
     }
+}
+
+pub fn take_votes(player_id: &PlayerId, reader: &mut BufReader<TcpStream>, writer: &mut LineWriter<TcpStream>, 
+    barrier: &Arc<Barrier>, shared_vote: &Arc<Mutex<HashMap<PlayerId, Option<bool>>>>) -> (bool, bool) {
+    writeln!(writer, "play again? (y/n)").unwrap();
+
+    let player_vote: bool = get_valid_input(reader, writer);
+
+    {
+        let mut shared_vote = shared_vote.lock().unwrap();
+        shared_vote.insert(*player_id, Some(player_vote));
+
+    }
+
+    // 1st Barrier Wait:
+    // Guarantees all votes are in before counting
+    let barrier_result = barrier.wait();
+
+    let all_voted_yes= shared_vote.lock().unwrap().values().all(|v| *v == Some(true));
+    let is_leader = barrier_result.is_leader();
+
+    (all_voted_yes, is_leader)
+}
+
+fn setup_player(id: &PlayerId, shared_game: &Arc<Mutex<Game>>, writer: &mut LineWriter<TcpStream>) {
+    writeln!(writer, "you are player {id}").unwrap();
+    
+    {
+        let mut game = shared_game.lock().unwrap();
+        *game = game.initialize_player(id);
+    }   
+}
+
+fn restart_game(reader: &mut BufReader<TcpStream>, writer: &mut LineWriter<TcpStream>, shared_game: &Arc<Mutex<Game>>) {
+    writeln!(writer, "Enter the lenght of the secret word between {WORD_MIN_LEN} and {WORD_MAX_LEN}: ").unwrap();
+    
+    let new_secret_word_len: u32 = get_valid_input(reader, writer);
+    *shared_game.lock().unwrap() = Game::start_game(new_secret_word_len);
 }
 
 fn run_game(player_id: &PlayerId, last_view: &mut String, shared_game: &Arc<Mutex<Game>>, 
@@ -93,66 +131,32 @@ fn run_game(player_id: &PlayerId, last_view: &mut String, shared_game: &Arc<Mute
     }
 }
 
-pub fn take_votes(player_id: &PlayerId, reader: &mut BufReader<TcpStream>, writer: &mut LineWriter<TcpStream>, 
-    barrier: &Arc<Barrier>, shared_vote: &Arc<Mutex<HashMap<PlayerId, Option<bool>>>>) -> (bool, bool) {
-    writeln!(writer, "play again? (y/n)").unwrap();
-
-    let player_vote: bool = get_valid_input(reader, writer);
-
-    {
-        let mut shared_vote = shared_vote.lock().unwrap();
-        shared_vote.insert(*player_id, Some(player_vote));
-
-    }
-
-    // 1st Barrier Wait:
-    // Guarantees all votes are in before counting
-    let barrier_result = barrier.wait();
-
-    let all_voted_yes= shared_vote.lock().unwrap().values().all(|v| *v == Some(true));
-    let is_leader = barrier_result.is_leader();
-
-    (all_voted_yes, is_leader)
-}
-
-fn setup_player(player_id: &PlayerId, shared_game: &Arc<Mutex<Game>>, writer: &mut LineWriter<TcpStream>) {
-    writeln!(writer, "you are player {player_id}").unwrap();
-    {
-        let mut game = shared_game.lock().unwrap();
-        *game = game.register_player();
-    }    
-}
-
-fn restart_game(reader: &mut BufReader<TcpStream>, writer: &mut LineWriter<TcpStream>, shared_game: &Arc<Mutex<Game>>) {
-    writeln!(writer, "Enter the lenght of the secret word between {WORD_MIN_LEN} and {WORD_MAX_LEN}: ").unwrap();
-    
-    let new_secret_word_len: u32 = get_valid_input(reader, writer);
-    *shared_game.lock().unwrap() = Game::start_game(new_secret_word_len);
-}
 
 // mut in mut reader indicates mutable binding
 //   which means I can reassign the binding (point reader at something else)
 // mut in reader: &mut BufReader indicates mutable reference
 //   which means I can mutate reader through the reference (write/read bytes)
-pub fn handle_client(mut reader: BufReader<TcpStream>, mut writer: LineWriter<TcpStream>, 
-    player_id: &PlayerId, shared_game: Arc<Mutex<Game>>, barrier: Arc<Barrier>, shared_vote: Arc<Mutex<HashMap<PlayerId, Option<bool>>>>) {
+pub fn handle_client(id: PlayerId, mut reader: BufReader<TcpStream>, mut writer: LineWriter<TcpStream>, 
+    shared_game: Arc<Mutex<Game>>, barrier: Arc<Barrier>, shared_vote: Arc<Mutex<HashMap<PlayerId, Option<bool>>>>) {
+    
     // Session allows players to play more than one game
     'session: loop {
-        // Set up the player
-        setup_player(player_id, &shared_game, &mut writer);
-        // Use it to update view after eliminated
+        // 1. Set up player
+        setup_player(&id, &shared_game, &mut writer);
+        // A little note about last_view: It's a client-side display concern, not game logic. 
+        // It lives as local variable in the session loop, reset at the top of each iteration.
         let mut last_view = String::new();
-
+        
+        // 2. Run game
         'game: loop {
-            let game_over = run_game(player_id, &mut last_view, &shared_game, &mut reader, &mut writer);
-
+            let game_over = run_game(&id, &mut last_view, &shared_game, &mut reader, &mut writer);
             if game_over {
                 break 'game;
             }
         }
-
-        let (all_voted_yes, is_leader) = take_votes(player_id, &mut reader, &mut writer, &barrier, &shared_vote);
-        
+        // 3. Take votes
+        let (all_voted_yes, is_leader) = take_votes(&id, &mut reader, &mut writer, &barrier, &shared_vote);
+        // 4. Restart game
         if is_leader {
             if all_voted_yes {                
                 restart_game(&mut reader, &mut writer, &shared_game);
