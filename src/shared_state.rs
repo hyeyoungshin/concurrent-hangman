@@ -43,7 +43,7 @@ pub fn server_with_config(addr: &str, initial_state: Game, num_players: u32) {
     }
 }
 
-fn try_and_commit_play(game: &Arc<Mutex<Game>>, player_id: &PlayerId, player_guess: &char) -> bool {
+fn try_and_commit_play(game: &Arc<Mutex<Game>>, player_id: &PlayerId, player_guess: char) -> bool {
     let mut current_game = game.lock().unwrap();
 
     if current_game.game_over() {
@@ -75,11 +75,12 @@ pub fn take_votes(player_id: &PlayerId, reader: &mut BufReader<TcpStream>, write
 
     }
 
-    // 1st Barrier Wait:
-    // Guarantees all votes are in before counting
+    // 1st Barrier Wait
+    // Guarantees all votes are in before counting by blocking until all 3 threads have called wait()
     let barrier_result = barrier.wait();
 
     let all_voted_yes= shared_vote.lock().unwrap().values().all(|v| *v == Some(true));
+    // One thread is arbitrarily chosen as a leader to perform a shared tasks while the others wait
     let is_leader = barrier_result.is_leader();
 
     (all_voted_yes, is_leader)
@@ -92,13 +93,6 @@ fn setup_player(id: &PlayerId, shared_game: &Arc<Mutex<Game>>, writer: &mut Line
         let mut game = shared_game.lock().unwrap();
         *game = game.initialize_player(id);
     }   
-}
-
-fn restart_game(reader: &mut BufReader<TcpStream>, writer: &mut LineWriter<TcpStream>, shared_game: &Arc<Mutex<Game>>) {
-    writeln!(writer, "Enter the lenght of the secret word between {WORD_MIN_LEN} and {WORD_MAX_LEN}: ").unwrap();
-    
-    let new_secret_word_len: u32 = get_valid_input(reader, writer);
-    *shared_game.lock().unwrap() = Game::start_game(new_secret_word_len);
 }
 
 fn run_game(player_id: &PlayerId, last_view: &mut String, shared_game: &Arc<Mutex<Game>>, 
@@ -124,7 +118,7 @@ fn run_game(player_id: &PlayerId, last_view: &mut String, shared_game: &Arc<Mute
 
         let player_guess: char = get_valid_input(reader, writer);
 
-        if !try_and_commit_play(&shared_game, player_id, &player_guess) {
+        if !try_and_commit_play(&shared_game, player_id, player_guess) {
             writeln!(writer, "sorry, the secret word is revealed in the meantime!").unwrap();
         }
         false
@@ -159,9 +153,9 @@ pub fn handle_client(id: PlayerId, mut reader: BufReader<TcpStream>, mut writer:
         // 4. Restart game
         if is_leader {
             if all_voted_yes {                
-                restart_game(&mut reader, &mut writer, &shared_game);
-            }            
-        } 
+                *shared_game.lock().unwrap() = setup_game(&mut reader, &mut writer);
+            }  
+        }
         // wait for leader to finish resetting
         // after which point fresh game is guaranteed
         barrier.wait(); 
