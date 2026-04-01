@@ -102,7 +102,7 @@ impl Game {
         }
     }
 
-    pub fn word_view(&self) -> String {
+    fn word_view(&self) -> String {
         self.secret_word.chars().map(|ch| if self.get_correct_guess().contains(&ch) {ch} else {'_'}).collect()
     }
 
@@ -146,21 +146,21 @@ impl Game {
     //   - game is over, Game's correct_guess and winner get updated
     //   - game isn't over, Game's correct_guess gets updatd
     // 3. if player guessed a wrong character, Game's player map gets updated with the new wrong guess
-    pub fn play(&self, player_id: &PlayerId, guess: &char) -> Self {
+    pub fn play(&self, player_id: &PlayerId, guess: char) -> Self {
         // todo!()
         let player_state = self.get_player_state(player_id);
         
         // eliminated player's guesses doesn't affect game
-        if player_state.is_eliminated() || self.correct_guess.contains(guess) || player_state.wrong_guess.contains(guess) {
+        if player_state.is_eliminated() || self.correct_guess.contains(&guess) || player_state.wrong_guess.contains(&guess) {
             Game {
                 secret_word: self.secret_word.clone(),
                 correct_guess: self.correct_guess.clone(),
                 players: self.players.clone(),
                 winner: self.winner,
             }
-        } else if self.is_correct_guess(guess) {
+        } else if self.is_correct_guess(&guess) {
                 let mut new_correct = self.correct_guess.clone();
-                new_correct.insert(*guess);
+                new_correct.insert(guess);
                 
                 // player won: check against new_correct, not the old state
                 let won = self.secret_word.chars().collect::<HashSet<char>>() == new_correct;
@@ -183,7 +183,7 @@ impl Game {
         } else {
             // player incorrectly guessed
             let mut new_wrong = player_state.wrong_guess.clone();
-            new_wrong.insert(*guess);
+            new_wrong.insert(guess);
             
             let mut new_map = self.players.clone();
             new_map.insert(*player_id, PlayerState { wrong_guess: new_wrong });
@@ -272,9 +272,9 @@ impl ValidInput for bool {
 // 
 // For the multiplayer TCP version, pass the LineWriter<TcpStream>
 // For the local single-player version, pass std::io::stdout()
-pub fn announce_winner(winner: Option<PlayerId>, player_id: &PlayerId, secret_word: String, mut writer: impl Write) {
+pub fn announce_winner(winner: Option<PlayerId>, id: &PlayerId, secret_word: String, mut writer: impl Write) {
     match winner {
-        Some(winner) if winner == *player_id => { writeln!(writer, "Congratulation, you won!").unwrap(); },
+        Some(winner) if winner == *id => { writeln!(writer, "Congratulation, you won!").unwrap(); },
         Some(winner) => { writeln!(writer, "Player {} won.", winner).unwrap(); }
         None => { writeln!(writer, "Nobody won... secret word is {}", secret_word).unwrap(); }
     }
@@ -295,7 +295,7 @@ pub fn frequently_used_word_of_len(word_len: u32) -> String {
 }
 
 pub fn setup_game(reader: &mut impl BufRead, writer: &mut impl Write) -> Game {
-    println!("Enter secret word length: ");
+    writeln!(writer, "Enter the secret word length between {WORD_MIN_LEN} and {WORD_MAX_LEN}: ").unwrap();
     let secret_word_len = get_valid_input(reader, writer);
 
     Game::start_game(secret_word_len)
