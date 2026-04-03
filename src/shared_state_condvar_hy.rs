@@ -17,8 +17,6 @@ pub fn server_with_config(addr: &str, initial_state: Game, num_players: u32) {
     let shared_game = Arc::new((Mutex::new(initial_state), Condvar::new()));
     let shared_vote = Arc::new((Mutex::new(HashMap::new()), Condvar::new()));
 
-    // let barrier = Arc::new(Barrier::new(num_players as usize));
-
     let mut handles = vec![];
 
     for id in 0..num_players {
@@ -28,7 +26,7 @@ pub fn server_with_config(addr: &str, initial_state: Game, num_players: u32) {
 
         // -- shared ownership--
         // Each thread gets its own copy of shared_game
-        // `shared_game`` needs to outlive all the player threads
+        // `shared_game` needs to outlive all the player threads
         // None of those threads knows how long the others will run
         // `Arc` is what makes this possible: 
         //   each thread gets a clone of the `Arc`, icrementing the reference count, 
@@ -47,6 +45,7 @@ pub fn server_with_config(addr: &str, initial_state: Game, num_players: u32) {
         handle.join().unwrap() // join is called on a `handle` from the main thread
                                // "wait here until the `handle` (thread) finishes"
     }
+
 }
 
 // Doesn't need shared ownership of `shared_game` since it's called within a thread that already
@@ -193,6 +192,7 @@ pub fn handle_client(id: PlayerId, num_players: u32, mut reader: BufReader<TcpSt
 
         });
 
+        // truth vs proof vs truth too expensive to prove 
         reader = reader_thread.join().unwrap();
         writer = writer_thread.join().unwrap();
 
