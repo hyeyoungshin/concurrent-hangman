@@ -19,9 +19,9 @@ fn game_loop() {
         writeln!(writer, "{}", game.state_view(&id)).unwrap();
 
         writeln!(writer, "Guess a letter.").unwrap();
-        let player_guess: char = get_valid_input(&mut reader, &mut writer);
+        let guess: char = get_valid_input(&mut reader, &mut writer);
 
-        game = game.play(&id, &player_guess)
+        game = game.play(&id, guess)
     }
 
     announce_winner(game.get_winner(), &id, game.get_secret_word(), writer);    
