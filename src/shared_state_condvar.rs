@@ -15,7 +15,7 @@ pub fn server_with_config(addr: &str, initial_state: Game, num_players: u32) {
 
 
     let shared_game = Arc::new((Mutex::new(initial_state), Condvar::new()));
-    let shared_vote = Arc::new((Mutex::new(HashMap::new()), Condvar::new()));
+    let shared_votes = Arc::new((Mutex::new(HashMap::new()), Condvar::new()));
 
     let mut handles = vec![];
 
@@ -25,17 +25,17 @@ pub fn server_with_config(addr: &str, initial_state: Game, num_players: u32) {
         let writer = LineWriter::new(stream);
 
         // -- shared ownership--
-        // Each thread gets its own copy of shared_game
+        // Each thread gets its own reference of shared_game
         // `shared_game` needs to outlive all the player threads
         // None of those threads knows how long the others will run
         // `Arc` is what makes this possible: 
         //   each thread gets a clone of the `Arc`, icrementing the reference count, 
         //   and the data is only dropped when the last thread holding an Arc clone finishes
         let shared_game = Arc::clone(&shared_game);
-        let shared_vote = Arc::clone(&shared_vote);
+        let shared_votes = Arc::clone(&shared_votes);
         
         let handle = thread::spawn(move || {
-            handle_client(id, num_players, reader, writer, shared_game, shared_vote)
+            handle_client(id, num_players, reader, writer, shared_game, shared_votes)
         });
         
         handles.push(handle);
@@ -100,7 +100,10 @@ fn run_game(id: &PlayerId, shared_game: Arc<(Mutex<Game>, Condvar)>,
             cvar.notify_all()
         }
 
-        if current_game.game_over() {
+        if current_game.get_player_state(id).is_eliminated() {
+            cvar.notify_all();
+            return reader;
+        } else if current_game.game_over() {
             cvar.notify_all();
             return reader;
         } else {
@@ -122,47 +125,35 @@ fn write_updates(id: &PlayerId, shared_game: Arc<(Mutex<Game>, Condvar)>, mut wr
     loop {
         game_guard = cvar.wait(game_guard).unwrap();
 
+        let updated_view = game_guard.state_view(id);
+        writeln!(writer, "{updated_view}").unwrap();
+
         if game_guard.game_over() {
             announce_winner(game_guard.get_winner(), id, game_guard.get_secret_word(), &mut writer);
             return writer;
-        } else {
-            let updated_view = game_guard.state_view(id);
-            writeln!(writer, "{updated_view}").unwrap();
         }
     }
 }
 
-pub fn take_votes(player_id: &PlayerId, num_players: u32, reader: &mut BufReader<TcpStream>, writer: &mut LineWriter<TcpStream>, 
-    shared_vote: &Arc<(Mutex<HashMap<PlayerId, Option<bool>>>, Condvar)>) -> bool {
-    writeln!(writer, "play again? (y/n)").unwrap();
+pub fn vote(player_id: &PlayerId, num_players: u32, reader: &mut BufReader<TcpStream>, writer: &mut LineWriter<TcpStream>, 
+    shared_vote: &Arc<(Mutex<HashMap<PlayerId, Option<bool>>>, Condvar)>) {
+    writeln!(writer, "Player {player_id }, play again? (y/n)").unwrap();
     let vote: bool = get_valid_input(reader, writer);
 
-    let (votes, cvar) = &**shared_vote;
-    let mut votes_guard = votes.lock().unwrap();
-    votes_guard.insert(*player_id, Some(vote));
-
-    // "I will wait until others are done"
-    loop {
-        // check "all voted" condition
-        let all_voted = votes_guard.values().len();
-        if all_voted == num_players as usize {
-            cvar.notify_all();
-            break;
-        }
-
-        votes_guard = cvar.wait(votes_guard).unwrap(); // releases lock
-    }    
-
-    let all_voted_yes= votes_guard.values().all(|v| *v == Some(true));
-    all_voted_yes
+    let &(ref lock, ref cvar) = &**shared_vote;
+    let mut votes_map = lock.lock().unwrap();
+    votes_map.insert(*player_id, Some(vote));
+    
+    writeln!(writer, "Player {player_id} voted: {vote}").unwrap();
+    cvar.notify_all();
 }
 
 pub fn handle_client(id: PlayerId, num_players: u32, mut reader: BufReader<TcpStream>, mut writer: LineWriter<TcpStream>,
-    shared_game: Arc<(Mutex<Game>, Condvar)>, shared_vote: Arc<(Mutex<HashMap<PlayerId, Option<bool>>>, Condvar)>) {
+    shared_game: Arc<(Mutex<Game>, Condvar)>, shared_votes: Arc<(Mutex<HashMap<PlayerId, Option<bool>>>, Condvar)>) {
     
     // Session allows players to play more than one game
     'session: loop {
-        let (game, cvar) = &*shared_game;
+        let (game, game_cvar) = &*shared_game;
 
         let shared_game_reader = Arc::clone(&shared_game);
         let shared_game_writer = Arc::clone(&shared_game);
@@ -189,30 +180,54 @@ pub fn handle_client(id: PlayerId, num_players: u32, mut reader: BufReader<TcpSt
         // The writer thread locks shared_game to read the current state when woken by the Condvar
         let writer_thread = thread::spawn(move || {
             write_updates(&id, shared_game_writer, writer_writer)
-
         });
 
         // truth vs proof vs truth too expensive to prove 
         reader = reader_thread.join().unwrap();
         writer = writer_thread.join().unwrap();
 
-        // 3. Take votes
-        let all_yes= take_votes(&id, num_players, &mut reader, &mut writer, &shared_vote);
+        // 3. Vote to play more or exit
+        vote(&id, num_players, &mut reader, &mut writer, &shared_votes);
+
+
+        let &(ref votes_lock, ref vote_cvar) = &*shared_votes;
+
+        let all_yes = {
+            let mut votes_map = votes_lock.lock().unwrap();
+        
+            while votes_map.values().len() != num_players as usize {
+                votes_map = vote_cvar.wait(votes_map).unwrap(); // releases lock
+            }
+
+            votes_map.values().all(|v| *v == Some(true))
+        }; // votes_map dropped here -> lock released
 
         if !all_yes {
+            writeln!(writer, "breaking session!").unwrap();
             break 'session;
         } else {
             if id == 0 {
+                writeln!(writer, "Restarting the game...").unwrap();
                 // 4. Restart game
                 // Get input WITHOUT holding the lock so player 1 can enter cvar.wait first
                 let new_game = setup_game(&mut reader, &mut writer);
                 // Re-acquire lock only to assign the new game and notify
                 let mut game_guard = game.lock().unwrap();
                 *game_guard = new_game;
-                cvar.notify_all();
+
+                // clear votes for next round
+                let (votes_lock, _) = &*shared_votes;
+                votes_lock.lock().unwrap().clear();
+
+                game_cvar.notify_all();
             } else {
-                let game_guard = game.lock().unwrap();
-                cvar.wait(game_guard).unwrap();
+                writeln!(writer, "Waiting for the game to restart...").unwrap();
+                let mut game_guard = game.lock().unwrap();
+
+                while game_guard.game_over() { // without this, 1. cvar.notify_call signal may get lost if it was called before player 1 enters wait
+                                               // 2. If a spurious wakeup occurs, player 1 exits the wait immediately before player 0 restarts the game
+                    game_guard = game_cvar.wait(game_guard).unwrap();
+                }
             }
         }
     }

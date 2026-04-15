@@ -276,7 +276,7 @@ pub fn announce_winner(winner: Option<PlayerId>, id: &PlayerId, secret_word: Str
     match winner {
         Some(winner) if winner == *id => { writeln!(writer, "Congratulation, you won!").unwrap(); },
         Some(winner) => { writeln!(writer, "Player {} won.", winner).unwrap(); }
-        None => { writeln!(writer, "Nobody won... secret word is {}", secret_word).unwrap(); }
+        None => { writeln!(writer, "Nobody won... secret word is {secret_word}").unwrap(); }
     }
 }
 
