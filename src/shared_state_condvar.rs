@@ -48,6 +48,8 @@ pub fn server_with_config(addr: &str, initial_state: Game, num_players: u32) {
 
 }
 
+// I wasn't sure if this function should take shared_game wrapped in Arc or just Mutex. Here is the AI's answer:
+// 
 // Doesn't need shared ownership of `shared_game` since it's called within a thread that already
 // owns an `Arc` clone. This function runs synchronously, returns before anything else happens, and
 // the thread that called it continues to hold the `Arc` for as long as needed.
@@ -59,15 +61,6 @@ fn setup_player(id: &PlayerId, shared_game: &Mutex<Game>, writer: &mut LineWrite
         let mut game = shared_game.lock().unwrap();
         *game = game.initialize_player(id);
     }   
-}
-
-fn update_view(last_view: &mut String, current_view: String) -> bool {
-    if *last_view != current_view {
-        *last_view = current_view;
-        true
-    } else {
-        false
-    }
 }
 
 fn try_and_commit_play(id: &PlayerId, guess: char, shared_game: &Mutex<Game>) -> bool {
@@ -83,22 +76,13 @@ fn try_and_commit_play(id: &PlayerId, guess: char, shared_game: &Mutex<Game>) ->
 
 fn run_game(id: &PlayerId, shared_game: Arc<(Mutex<Game>, Condvar)>, 
     mut reader: BufReader<TcpStream>, mut writer: LineWriter<TcpStream>) -> BufReader<TcpStream> {
-    
     let (game, cvar) = &*shared_game;
-    let mut last_view = String::new();
-
+    
     loop {
         let current_game = {
             let game = game.lock().unwrap();
             game.clone()
         };
-
-        let current_view = current_game.state_view(&id);
-        let updated = update_view(&mut last_view, current_view);
-        
-        if updated { 
-            cvar.notify_all()
-        }
 
         if current_game.get_player_state(id).is_eliminated() {
             cvar.notify_all();
@@ -112,8 +96,9 @@ fn run_game(id: &PlayerId, shared_game: Arc<(Mutex<Game>, Condvar)>,
 
             if !try_and_commit_play(id, guess, game) {
                 writeln!(writer, "sorry, the secret word is revealed in the meantime!").unwrap();
-                cvar.notify_all();
+                // cvar.notify_all(); redundant
             }
+            cvar.notify_all();
         }
     }
 }
@@ -121,17 +106,27 @@ fn run_game(id: &PlayerId, shared_game: Arc<(Mutex<Game>, Condvar)>,
 fn write_updates(id: &PlayerId, shared_game: Arc<(Mutex<Game>, Condvar)>, mut writer: LineWriter<TcpStream>) -> LineWriter<TcpStream> {
     let (game, cvar) = &*shared_game;
     let mut game_guard = game.lock().unwrap();
+    let mut last_view = String::new();
 
     loop {
-        game_guard = cvar.wait(game_guard).unwrap();
+        // the fix: check and write before waiting
+        let current_view = game_guard.state_view(id);
 
-        let updated_view = game_guard.state_view(id);
-        writeln!(writer, "{updated_view}").unwrap();
+        if current_view != last_view {
+            writeln!(writer, "{current_view}").unwrap();
+            last_view = current_view;
+        }
+        
+        // Previously, unchecked write
+        // let updated_view = game_guard.state_view(id);
+        // writeln!(writer, "{updated_view}").unwrap();
 
         if game_guard.game_over() {
             announce_winner(game_guard.get_winner(), id, game_guard.get_secret_word(), &mut writer);
             return writer;
         }
+
+        game_guard = cvar.wait(game_guard).unwrap();
     }
 }
 
